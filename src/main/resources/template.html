@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>{{title}}</title>
+    <style>
+        /*
+        这里可以由用户自由修改样式
+        */
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', SimHei, sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            background-color: #f6f8fa;
+        }
+
+        .paper {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 40px;
+            box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            font-size: 24px;
+            color: #2c3e50;
+            border-bottom: 1px solid #eaecef;
+            padding-bottom: 10px;
+        }
+
+        a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+
+        blockquote {
+            border-left: 4px solid #dfe2e5;
+            color: #6a737d;
+            padding-left: 10px;
+            margin: 10px 0;
+        }
+
+        code {
+            font-family: Consolas, Monaco, monospace;
+            background: rgba(199, 237, 204, 0.05);
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+        }
+
+        /*
+        这里的 MyChineseFont 对应 PdfGenerator 中注册的字体名
+        */
+        * {
+            font-family: 'MyChineseFont', sans-serif !important;
+        }
+
+        /*
+        可以在这里添加代码高亮样式
+        */
+        pre {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+<div class="paper">
+    <h1>{{title}}</h1>
+    <div style="color: #888; font-size: 12px; margin-bottom: 20px;">
+        原文链接: <a href="{{url}}">{{url}}</a>
+    </div>
+    <div id="content">
+        {{content}}
+    </div>
+</div>
+</body>
+</html>
