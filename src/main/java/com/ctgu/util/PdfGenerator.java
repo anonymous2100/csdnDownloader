@@ -30,14 +30,17 @@ public class PdfGenerator {
     public static void generate(String html, String outputPath) throws Exception {
         // 1. 规范化HTML 为 XHTML
         Document doc = Jsoup.parse(html);
-        doc.outputSettings().syntax(Document.OutputSettings.Syntax.xml);
-        // 替换 PDF 不支持的实体
-        String xhtml = doc.html()
-                .replace("&nbsp;", " ")
-                .replace("&quot;", "\"")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&amp;", "&");
+        // 强制设置为 XHTML 语法
+        doc.outputSettings()
+                .syntax(Document.OutputSettings.Syntax.xml)
+                .escapeMode(org.jsoup.nodes.Entities.EscapeMode.xhtml) // 使用 XHTML 转义模式
+                .charset("UTF-8");
+        // 2. 转换成 String
+        String xhtml = doc.html();
+        // 3. 只处理 XML 不识别但 HTML 常用的特殊实体
+        // 注意：不要替换 &lt;, &gt;, &amp;, &quot;
+        xhtml = xhtml.replace("&nbsp;", "&#160;"); // &nbsp; 在 XML 中不合法，换成十六进制编码
+
         try (OutputStream os = new FileOutputStream(outputPath)) {
             PdfRendererBuilder builder = new PdfRendererBuilder();
             // 2. 加载字体
@@ -61,6 +64,10 @@ public class PdfGenerator {
             builder.withHtmlContent(xhtml, null);
             builder.toStream(os);
             builder.run();
+            log.info("PDF 文件生成成功，保存路径: {}", outputPath);
+        } catch (Exception e) {
+            log.error("PDF 生成失败: {}, error xhtml content is :\n{}\n", e.getMessage(), xhtml);
+            throw e;
         }
     }
 }
