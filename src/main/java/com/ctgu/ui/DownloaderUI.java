@@ -2,6 +2,7 @@ package com.ctgu.ui;
 
 import com.ctgu.entity.DownloadResult;
 import com.ctgu.service.CSDNDownloader;
+import com.ctgu.service.CnblogDownloader;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 
@@ -26,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @date 2026-01-03 14:42
  */
 @Slf4j
-public class CSDNDownloaderUI extends JFrame
+public class DownloaderUI extends JFrame
 {
   // UI组件
   private JTextArea urlTextArea;
@@ -66,7 +67,7 @@ public class CSDNDownloaderUI extends JFrame
   private long delayBetweenDownloads = 1500;
   private final int DEFAULT_FONT_SIZE = 16;
 
-  public CSDNDownloaderUI()
+  public DownloaderUI()
   {
     loadConfig();
     initData();
@@ -93,7 +94,7 @@ public class CSDNDownloaderUI extends JFrame
     urlTextArea.setLineWrap(true);
     urlTextArea.setWrapStyleWord(true);
     urlTextArea.setFont(new Font("Consolas", Font.PLAIN, DEFAULT_FONT_SIZE));
-    urlTextArea.setToolTipText("请输入CSDN博客URL，每行一个");
+    urlTextArea.setToolTipText("支持CSDN文章/专栏、博客园文章/专栏链接，每行一个");
     JScrollPane scrollPane = new JScrollPane(urlTextArea);
     scrollPane.setBorder(BorderFactory.createTitledBorder(" 批量URL输入 (每行一个) "));
     scrollPane.setPreferredSize(new Dimension(1000, 120));
@@ -260,29 +261,99 @@ public class CSDNDownloaderUI extends JFrame
     pendingModel.setRowCount(0);
     completedModel.setRowCount(0);
     pendingUrls.clear();
+
     String[] lines = inputText.split("\n");
-    int idx = 1;
+    // 先收集所有需要展开的专栏链接，在 EDT 外做 IO，避免 UI 阻塞
+    List<String> rawValidUrls = new ArrayList<>();
+    List<String> categoryUrlsToExpand = new ArrayList<>();
     for(String line : lines)
     {
       line = line.trim();
-      if(isValidCsdnUrl(line))
+      if(line.isEmpty())
+        continue;
+      if(isValidUrl(line))
       {
-        pendingUrls.add(line);
-        pendingModel.addRow(new Object[] { idx++, line, "等待中", "0%", "" });
+        if(CnblogDownloader.isCnblogCategoryUrl(line))
+        {
+          categoryUrlsToExpand.add(line);
+        }
+        else
+        {
+          rawValidUrls.add(line);
+        }
       }
     }
-    if(pendingUrls.isEmpty())
+    if(rawValidUrls.isEmpty() && categoryUrlsToExpand.isEmpty())
     {
-      JOptionPane.showMessageDialog(this, "没有有效的CSDN链接");
+      JOptionPane.showMessageDialog(this,
+          "没有有效的CSDN或博客园链接\n" + "支持的格式：\n" + "  CSDN文章：https://blog.csdn.net/xxx/article/details/xxx\n"
+              + "  博客园文章：https://www.cnblogs.com/xxx/p/xxx.html\n" + "  博客园专栏：https://www.cnblogs.com/xxx/category/xxx.html");
       return;
+    }
+    // 先把已知的单篇加入列表
+    int idx = 1;
+    for(String url : rawValidUrls)
+    {
+      pendingUrls.add(url);
+      pendingModel.addRow(new Object[] { idx++, url, "等待中", "0%", "" });
     }
     // 切换 UI 状态
     isDownloading = true;
     downloadButton.setEnabled(false);
     stopButton.setEnabled(true);
     tabbedPane.setSelectedIndex(0);
-    // 调用下载处理方法
-    executeBatchDownload();
+    statusLabel.setText("正在解析专栏链接...");
+
+    // 如果有专栏需要展开，在后台线程做，完成后再启动下载
+    if(!categoryUrlsToExpand.isEmpty())
+    {
+      final int[] startIdx = { idx };
+      executorService.submit(() -> {
+        CnblogDownloader cnblogDownloader = new CnblogDownloader();
+        for(String categoryUrl : categoryUrlsToExpand)
+        {
+          if(!isDownloading)
+            break;
+          SwingUtilities.invokeLater(() -> statusLabel.setText("正在获取专栏列表: " + categoryUrl));
+          try
+          {
+            List<String> articleUrls = cnblogDownloader.fetchCategoryArticleUrls(categoryUrl);
+            for(String articleUrl : articleUrls)
+            {
+              final int rowIdx = startIdx[0]++;
+              pendingUrls.add(articleUrl);
+              SwingUtilities.invokeLater(() -> pendingModel.addRow(new Object[] { rowIdx, articleUrl, "等待中", "0%", "" }));
+            }
+          }
+          catch(Exception e)
+          {
+            log.error("获取博客园专栏文章列表失败: {}", categoryUrl, e);
+            SwingUtilities.invokeLater(
+                () -> JOptionPane.showMessageDialog(DownloaderUI.this, "获取专栏列表失败: " + categoryUrl + "\n" + e.getMessage(), "错误",
+                    JOptionPane.WARNING_MESSAGE));
+          }
+        }
+        // 展开完成后启动真正的批量下载
+        SwingUtilities.invokeLater(() -> {
+          if(pendingUrls.isEmpty())
+          {
+            isDownloading = false;
+            downloadButton.setEnabled(true);
+            stopButton.setEnabled(false);
+            statusLabel.setText("就绪");
+          }
+          else
+          {
+            executeBatchDownload();
+          }
+        });
+      });
+    }
+    else
+    {
+      // 没有专栏需要展开，直接开始下载
+      executeBatchDownload();
+    }
   }
 
   /**
@@ -295,8 +366,9 @@ public class CSDNDownloaderUI extends JFrame
     progressBar.setValue(0);
     // 初始化完成计数器
     completedCount.set(0);
-    // 创建单例 Downloader (避免循环内 new)
-    CSDNDownloader downloader = new CSDNDownloader();
+    // 创建下载器实例（复用，避免循环内 new）
+    CSDNDownloader csdnDownloader = new CSDNDownloader();
+    CnblogDownloader cnblogDownloader = new CnblogDownloader();
     // 遍历任务，提交到线程池
     for(int i = 0; i < total; i++)
     {
@@ -315,8 +387,16 @@ public class CSDNDownloaderUI extends JFrame
         });
         //使用 downloadStatusMap 记录当前 URL 正在处理
         downloadStatusMap.put(url, "Downloading");
-        // 2. 执行下载 (耗时 IO)
-        DownloadResult result = downloader.downloadArticle(url);
+        // 2. 根据 URL 类型选择对应下载器
+        DownloadResult result;
+        if(CnblogDownloader.isCnblogUrl(url))
+        {
+          result = cnblogDownloader.downloadArticle(url);
+        }
+        else
+        {
+          result = csdnDownloader.downloadArticle(url);
+        }
         // 将结果存入 completedDownloads 列表（用于后续导出等功能）
         completedDownloads.add(result);
         // 3. 处理结果
@@ -332,7 +412,6 @@ public class CSDNDownloaderUI extends JFrame
           downloadStatusMap.put(url, result.getHttpStatus() == 404 ? "NotFound" : "Failed");
         }
         // 4. 延时 (遵守 config.properties 的 delay.ms，防止封 IP)
-        // 注意：并发环境下，这个延时是针对每个线程的，不是全局串行
         try
         {
           Thread.sleep(delayBetweenDownloads);
@@ -591,7 +670,7 @@ public class CSDNDownloaderUI extends JFrame
       String url = line.trim();
       if(url.isEmpty())
         continue;
-      if(isValidCsdnUrl(url))
+      if(isValidUrl(url))
       {
         validCount++;
       }
@@ -927,8 +1006,19 @@ public class CSDNDownloaderUI extends JFrame
     }
   }
 
-  private boolean isValidCsdnUrl(String url)
+  /**
+   * 判断 URL 是否合法（支持 CSDN 文章 和 博客园 文章/专栏）
+   */
+  private boolean isValidUrl(String url)
   {
-    return url != null && url.contains("csdn.net") && url.contains("/article/details/");
+    if(url == null || url.trim().isEmpty())
+      return false;
+    // CSDN 单篇文章
+    if(url.contains("csdn.net") && url.contains("/article/details/"))
+      return true;
+    // 博客园单篇文章或专栏
+    return CnblogDownloader.isCnblogUrl(url);
   }
 }
+
+

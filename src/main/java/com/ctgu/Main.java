@@ -1,13 +1,13 @@
 package com.ctgu;
 
-import com.ctgu.ui.CSDNDownloaderUI;
+import com.ctgu.ui.DownloaderUI;
 
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
 import java.awt.*;
 
 /**
- * @author lh2
+ * @author lihuahui
  * @version 1.0
  * @description:
  * @date 2026-01-06 14:31
@@ -34,7 +34,7 @@ public class Main {
                 // 设置文本显示效果
                 UIManager.put("OptionPane.messageFont", new FontUIResource(new Font("微软雅黑", Font.ITALIC, 16)));
 
-                CSDNDownloaderUI ui = new CSDNDownloaderUI();
+                DownloaderUI ui = new DownloaderUI();
                 ui.setVisible(true);
             } catch (Exception e) {
                 e.printStackTrace();
